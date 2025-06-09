@@ -1,4 +1,3 @@
-
 name: Deploy to PythonAnywhere
 
 on:
@@ -39,6 +38,94 @@ jobs:
         
         API_TOKEN = os.environ['PA_API_TOKEN']
         USERNAME = os.environ['PA_USERNAME']
-        DOMAIN = os.environ['PA_DOMAIN']
+        DOMAIN = os.environ['PA_DOMAIN'] or f"{USERNAME}.pythonanywhere.com"
         
-        BASE_URL = 'https://www.pythonanywhere.com/api/v0/user
+        BASE_URL = f'https://www.pythonanywhere.com/api/v0/user/{USERNAME}'
+        HEADERS = {'Authorization': f'Token {API_TOKEN}'}
+        
+        def api_request(method, endpoint, **kwargs):
+            url = f"{BASE_URL}/{endpoint}"
+            response = method(url, headers=HEADERS, **kwargs)
+            if response.status_code >= 400:
+                print(f"Error: {response.status_code}")
+                print(response.text)
+                exit(1)
+            return response
+        
+        def console_message(message):
+            print(f"\n{'='*80}\n{message}\n{'='*80}\n")
+        
+        # Execute git pull command on PythonAnywhere
+        console_message("Pulling latest code from repository")
+        console_data = {
+            'executable': 'bash',
+            'input': f'cd ~/SocialAuth && git pull origin main',
+            'working_directory': f'/home/{USERNAME}/SocialAuth',
+        }
+        response = api_request(requests.post, 'consoles/', json=console_data)
+        console_id = response.json()['id']
+        
+        # Wait for git pull to complete
+        time.sleep(5)
+        
+        # Install dependencies
+        console_message("Installing dependencies")
+        console_data = {
+            'executable': 'bash',
+            'input': f'cd ~/SocialAuth && source ~/venv/bin/activate && pip install -r requirements.txt',
+            'working_directory': f'/home/{USERNAME}/SocialAuth',
+        }
+        response = api_request(requests.post, 'consoles/', json=console_data)
+        console_id = response.json()['id']
+        
+        # Wait for pip install to complete
+        time.sleep(20)
+        
+        # Run migrations
+        console_message("Running database migrations")
+        console_data = {
+            'executable': 'bash',
+            'input': f'cd ~/SocialAuth && source ~/venv/bin/activate && python manage.py migrate --noinput',
+            'working_directory': f'/home/{USERNAME}/SocialAuth',
+        }
+        response = api_request(requests.post, 'consoles/', json=console_data)
+        console_id = response.json()['id']
+        
+        # Wait for migrations to complete
+        time.sleep(10)
+        
+        # Collect static files
+        console_message("Collecting static files")
+        console_data = {
+            'executable': 'bash',
+            'input': f'cd ~/SocialAuth && source ~/venv/bin/activate && python manage.py collectstatic --noinput',
+            'working_directory': f'/home/{USERNAME}/SocialAuth',
+        }
+        response = api_request(requests.post, 'consoles/', json=console_data)
+        console_id = response.json()['id']
+        
+        # Wait for collectstatic to complete
+        time.sleep(10)
+        
+        # Reload the web app
+        console_message("Reloading web application")
+        response = api_request(requests.post, f'webapps/{DOMAIN}/reload/')
+        
+        console_message("Deployment completed successfully!")
+        print(f"Your app should be live at https://{DOMAIN}")
+        EOF
+        
+        # Run the deployment script
+        python deploy.py
+        
+    - name: Verify deployment
+      env:
+        PA_DOMAIN: ${{ secrets.PYTHONANYWHERE_DOMAIN }}
+        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
+      run: |
+        DOMAIN="${PA_DOMAIN:-${PA_USERNAME}.pythonanywhere.com}"
+        echo "Deployment completed. Verifying site availability..."
+        # Wait a bit for the app to start
+        sleep 15
+        # Check if the site is up
+        curl -I "https://${DOMAIN}/" || echo "Site may still be starting up, check manually."
