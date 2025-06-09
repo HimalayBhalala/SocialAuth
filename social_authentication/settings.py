@@ -114,10 +114,10 @@ if IS_PYTHONANYWHERE:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.environ.get('PA_DB_NAME', 'yourusername$dbname'),
-            'USER': os.environ.get('PA_DB_USER', 'yourusername'),
-            'PASSWORD': os.environ.get('PA_DB_PASSWORD', ''),
-            'HOST': os.environ.get('PA_DB_HOST', 'yourusername.mysql.pythonanywhere-services.com'),
+            'NAME': os.environ.get('DB_NAME', 'yourusername$dbname'),
+            'USER': os.environ.get('DB_USER', 'yourusername'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'yourusername.mysql.pythonanywhere-services.com'),
             'OPTIONS': {
                 'charset': 'utf8mb4',
                 'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
@@ -368,11 +368,11 @@ STATICFILES_DIRS = [
 # For PythonAnywhere deployment
 if IS_PYTHONANYWHERE:
     # Update static root for PythonAnywhere
-    STATIC_ROOT = '/home/yourusername/staticfiles'
+    STATIC_ROOT = '/home/HimalayBhalala/staticfiles'
     
     # Configure MEDIA settings for PythonAnywhere
     MEDIA_URL = '/media/'
-    MEDIA_ROOT = '/home/yourusername/media'
+    MEDIA_ROOT = '/home/HimalayBhalala/media'
 else:
     # Local media settings
     MEDIA_URL = '/media/'
@@ -412,20 +412,6 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1",
     "http://0.0.0.0",
 ]
-
-
-# Ensure all database settings are strings, not None
-# for key in ['NAME', 'USER', 'PASSWORD', 'HOST', 'PORT']:
-#     if DATABASES['default'][key] is None:
-#         if key == 'HOST':
-#             DATABASES['default'][key] = 'localhost'
-#         elif key == 'PORT':
-#             DATABASES['default'][key] = '3306'
-#         else:
-#             raise ValueError(f"Database {key} cannot be None. Please set DB_{key} or MYSQL_{key} environment variable.")
-
-# Convert PORT to string if it's an integer
-DATABASES['default']['PORT'] = str(DATABASES['default']['PORT'])
 
 # Alternative configuration for different environments
 if os.environ.get('DJANGO_ENV') == 'testing':
