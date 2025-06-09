@@ -430,7 +430,7 @@ if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
     DATABASES['default'].update({
         'HOST': '127.0.0.1',
         'PORT': '3306',
-        'NAME': 'test_db',
-        'USER': 'test_user',
-        'PASSWORD': 'test_password',
+        'NAME': 'test_social_auth_db',
+        'USER': 'root',
+        'PASSWORD': 'test_root_password',
     })

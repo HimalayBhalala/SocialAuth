@@ -3,7 +3,7 @@ import sys
 from django.core.management.base import BaseCommand, CommandError
 from django.core.management import call_command
 from django.db import connection
-import MySQLdb
+import traceback
 
 
 class Command(BaseCommand):
@@ -34,15 +34,24 @@ class Command(BaseCommand):
                 # Test database connection first
                 connection.ensure_connection()
                 
+                # Display database connection info for debugging
+                db_settings = connection.settings_dict
+                self.stdout.write(f"Database: {db_settings['NAME']}")
+                self.stdout.write(f"User: {db_settings['USER']}")
+                self.stdout.write(f"Host: {db_settings['HOST']}")
+                
                 # Run migrations
                 call_command('migrate', '--no-input')
                 
                 self.stdout.write(self.style.SUCCESS("Migrations completed successfully!"))
                 return
                 
-            except (MySQLdb.OperationalError, ConnectionError, Exception) as e:
+            except Exception as e:
                 error_message = str(e)
                 self.stdout.write(self.style.ERROR(f"Error during migration: {error_message}"))
+                
+                # Print traceback for debugging
+                self.stdout.write(self.style.ERROR(traceback.format_exc()))
                 
                 if "Access denied" in error_message:
                     self.stdout.write(self.style.ERROR(

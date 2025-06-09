@@ -55,6 +55,12 @@ jobs:
         pip install -r requirements.txt
         pip install coverage pytest-django
     
+    - name: Create required directories
+      run: |
+        mkdir -p static
+        mkdir -p staticfiles
+        mkdir -p media
+    
     - name: Wait for MySQL to be ready
       run: |
         for i in {1..30}; do
@@ -74,9 +80,10 @@ jobs:
     
     - name: Run database migrations
       env:
+        DB_ENGINE: django.db.backends.mysql
         DB_NAME: test_social_auth_db
-        DB_USER: test_user
-        DB_PASSWORD: test_password
+        DB_USER: root
+        DB_PASSWORD: test_root_password
         DB_HOST: 127.0.0.1
         DB_PORT: 3306
         SECRET_KEY: test-secret-key-for-ci-pipeline
@@ -87,9 +94,10 @@ jobs:
     
     - name: Run tests with coverage
       env:
+        DB_ENGINE: django.db.backends.mysql
         DB_NAME: test_social_auth_db
-        DB_USER: test_user
-        DB_PASSWORD: test_password
+        DB_USER: root
+        DB_PASSWORD: test_root_password
         DB_HOST: 127.0.0.1
         DB_PORT: 3306
         SECRET_KEY: test-secret-key-for-ci-pipeline
@@ -170,7 +178,7 @@ jobs:
           --network test-network \
           -e DB_HOST=test-mysql \
           -e DB_NAME=test_db \
-          -e DB_USER=test_user \
+          -e DB_USER=root \
           -e DB_PASSWORD=test_password \
           -e SECRET_KEY=test-key \
           -e DEBUG=False \
