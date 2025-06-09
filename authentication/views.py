@@ -60,7 +60,6 @@ class GoogleLoginView(APIView):
 
         # Create or authenticate user
         user, created = User.all_objects.get_or_create(email=email, defaults={"first_name" : first_name, "username": email, "provider": "google"})
-        
         if not user.account_activate:
             raise UserDeactivatedException()
 
