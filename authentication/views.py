@@ -671,7 +671,7 @@ class RegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validate password
+        # Check if password is valid
         try:
             validate_password(password)
         except ValidationError as e:
