@@ -368,11 +368,11 @@ STATICFILES_DIRS = [
 # For PythonAnywhere deployment
 if IS_PYTHONANYWHERE:
     # Update static root for PythonAnywhere
-    STATIC_ROOT = '/home/HimalayBhalala/staticfiles'
+    STATIC_ROOT = '/home/yourusername/staticfiles'
     
     # Configure MEDIA settings for PythonAnywhere
     MEDIA_URL = '/media/'
-    MEDIA_ROOT = '/home/HimalayBhalala/media'
+    MEDIA_ROOT = '/home/yourusername/media'
 else:
     # Local media settings
     MEDIA_URL = '/media/'
@@ -414,6 +414,19 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 
+# Ensure all database settings are strings, not None
+for key in ['NAME', 'USER', 'PASSWORD', 'HOST', 'PORT']:
+    if DATABASES['default'][key] is None:
+        if key == 'HOST':
+            DATABASES['default'][key] = 'localhost'
+        elif key == 'PORT':
+            DATABASES['default'][key] = '3306'
+        else:
+            raise ValueError(f"Database {key} cannot be None. Please set DB_{key} or MYSQL_{key} environment variable.")
+
+# Convert PORT to string if it's an integer
+DATABASES['default']['PORT'] = str(DATABASES['default']['PORT'])
+
 # Alternative configuration for different environments
 if os.environ.get('DJANGO_ENV') == 'testing':
     DATABASES['default'].update({
@@ -428,9 +441,9 @@ if os.environ.get('DJANGO_ENV') == 'testing':
 # For CI/CD environments, ensure we have proper test database settings
 if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'):
     DATABASES['default'].update({
-        'HOST': '127.0.0.1',
-        'PORT': '3306',
-        'NAME': 'test_social_auth_db',
-        'USER': 'root',
-        'PASSWORD': 'test_root_password',
+        'HOST': os.environ.get('DB_HOST'),
+        'PORT': os.environ.get('DB_PORT'),
+        'NAME': os.environ.get('DB_NAME'),
+        'USER': os.environ.get('DB_USER'),
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
     })
