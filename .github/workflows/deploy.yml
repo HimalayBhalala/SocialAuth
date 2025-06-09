@@ -57,6 +57,16 @@ jobs:
         chmod -R 755 ~/staticfiles
         chmod -R 755 ~/media
         
+        # Fix WSGI file with correct username
+        echo "Fixing WSGI file with correct username..."
+        export PA_USERNAME=${USERNAME}
+        python fix_pythonanywhere.py
+        
+        # Create WSGI file in PythonAnywhere web app configuration
+        echo "Creating/updating WSGI file for PythonAnywhere web app..."
+        mkdir -p ~/var/www
+        cp pythonanywhere_wsgi.py ~/var/www/${USERNAME}_pythonanywhere_com_wsgi.py
+        
         # Activate virtual environment and install dependencies
         echo "Installing dependencies..."
         source ~/venv/bin/activate || { echo "Error: Virtual environment not found"; exit 1; }
