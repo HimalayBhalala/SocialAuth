@@ -39,34 +39,61 @@ jobs:
         # Add host key
         ssh-keyscan -t rsa ssh.pythonanywhere.com >> ~/.ssh/known_hosts
         
-        # Deploy via SSH (more reliable than API)
-        echo "Deploying to PythonAnywhere via SSH..."
-        ssh $PA_USERNAME@$SSH_HOST << 'EOF'
-          cd ~/SocialAuth
-          git pull origin main
-          
-          # Create directories if they don't exist
-          mkdir -p ~/staticfiles
-          mkdir -p ~/media
-          chmod -R 755 ~/staticfiles
-          chmod -R 755 ~/media
-          
-          # Activate virtual environment and install dependencies
-          source ~/venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          
-          # Run migrations
-          python manage.py migrate
-          
-          # Collect static files
-          python manage.py collectstatic --noinput
-          
-          # Reload web app via API
-          curl -X POST \
-            -H "Authorization: Token $PA_API_TOKEN" \
-            https://www.pythonanywhere.com/api/v0/user/$PA_USERNAME/webapps/$PA_USERNAME.pythonanywhere.com/reload/
-        EOF
+        # Create deployment script
+        cat > deploy.sh << 'EOL'
+        #!/bin/bash
+        set -e  # Exit on error
+        
+        echo "Starting deployment on PythonAnywhere..."
+        
+        cd ~/SocialAuth || { echo "Error: SocialAuth directory not found"; exit 1; }
+        echo "Pulling latest code from GitHub..."
+        git pull origin main
+        
+        # Create directories if they don't exist
+        echo "Setting up directories..."
+        mkdir -p ~/staticfiles
+        mkdir -p ~/media
+        chmod -R 755 ~/staticfiles
+        chmod -R 755 ~/media
+        
+        # Activate virtual environment and install dependencies
+        echo "Installing dependencies..."
+        source ~/venv/bin/activate || { echo "Error: Virtual environment not found"; exit 1; }
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        
+        # Run migrations
+        echo "Running database migrations..."
+        python manage.py migrate
+        
+        # Collect static files
+        echo "Collecting static files..."
+        python manage.py collectstatic --noinput
+        
+        # Reload web app via API
+        echo "Reloading web application..."
+        RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+          -H "Authorization: Token ${API_TOKEN}" \
+          https://www.pythonanywhere.com/api/v0/user/${USERNAME}/webapps/${USERNAME}.pythonanywhere.com/reload/)
+        
+        HTTP_CODE=${RESPONSE: -3}
+        if [[ $HTTP_CODE == "200" ]]; then
+          echo "Web app reloaded successfully!"
+        else
+          echo "Error reloading web app. HTTP code: $HTTP_CODE"
+          echo "Response: ${RESPONSE%???}"
+          exit 1
+        fi
+        
+        echo "Deployment completed successfully!"
+        EOL
+        
+        # Copy script to PythonAnywhere
+        scp deploy.sh ${PA_USERNAME}@${SSH_HOST}:~/deploy.sh
+        
+        # Execute script with variables
+        ssh ${PA_USERNAME}@${SSH_HOST} "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
         
         echo "Deployment completed!"
     
