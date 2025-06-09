@@ -415,14 +415,14 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 # Ensure all database settings are strings, not None
-for key in ['NAME', 'USER', 'PASSWORD', 'HOST', 'PORT']:
-    if DATABASES['default'][key] is None:
-        if key == 'HOST':
-            DATABASES['default'][key] = 'localhost'
-        elif key == 'PORT':
-            DATABASES['default'][key] = '3306'
-        else:
-            raise ValueError(f"Database {key} cannot be None. Please set DB_{key} or MYSQL_{key} environment variable.")
+# for key in ['NAME', 'USER', 'PASSWORD', 'HOST', 'PORT']:
+#     if DATABASES['default'][key] is None:
+#         if key == 'HOST':
+#             DATABASES['default'][key] = 'localhost'
+#         elif key == 'PORT':
+#             DATABASES['default'][key] = '3306'
+#         else:
+#             raise ValueError(f"Database {key} cannot be None. Please set DB_{key} or MYSQL_{key} environment variable.")
 
 # Convert PORT to string if it's an integer
 DATABASES['default']['PORT'] = str(DATABASES['default']['PORT'])
