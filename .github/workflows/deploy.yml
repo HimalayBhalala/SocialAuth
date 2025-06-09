@@ -35,15 +35,32 @@ jobs:
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
         
+        # Debug environment variables (without revealing secrets)
+        echo "Debugging information:"
+        echo "PA_USERNAME is set: $([[ -n "$PA_USERNAME" ]] && echo "Yes" || echo "No")"
+        echo "SSH_PRIVATE_KEY length: ${#SSH_PRIVATE_KEY}"
+        
+        # Validate the SSH key format (must start with -----BEGIN)
+        if [[ "$SSH_PRIVATE_KEY" != "-----BEGIN"* ]]; then
+          echo "ERROR: SSH_PRIVATE_KEY does not appear to be in the correct format"
+          echo "The key should begin with '-----BEGIN'"
+          echo "Please check that the SSH_PRIVATE_KEY secret is set correctly in the repository"
+          exit 1
+        fi
+        
         # Create SSH key file with proper permissions
         echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
+        
+        # Verify SSH key content (safely)
+        echo "First few characters of SSH key:"
+        head -c 20 ~/.ssh/id_rsa | xxd -p
         
         # Set up SSH config for easier connection
         cat > ~/.ssh/config << EOF
         Host pythonanywhere
           HostName ssh.pythonanywhere.com
-          User ${PA_USERNAME}
+          User $PA_USERNAME
           IdentityFile ~/.ssh/id_rsa
           StrictHostKeyChecking no
         EOF
@@ -104,20 +121,24 @@ jobs:
         
         # Test SSH connection first
         echo "Testing SSH connection..."
-        if ssh -o BatchMode=yes -o ConnectTimeout=5 pythonanywhere "echo SSH connection successful"; then
+        # Skip using the config file initially to debug direct connection
+        if ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"; then
           echo "SSH connection working correctly, proceeding with deployment"
+          
+          # Copy script to PythonAnywhere using direct username and host
+          scp -o StrictHostKeyChecking=no deploy.sh $PA_USERNAME@ssh.pythonanywhere.com:~/deploy.sh
+          
+          # Execute script with variables
+          ssh -o StrictHostKeyChecking=no $PA_USERNAME@ssh.pythonanywhere.com "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
         else
           echo "SSH connection failed, checking key permissions and debug info"
           ls -la ~/.ssh/
-          ssh -v pythonanywhere "echo test"
+          echo "Content of SSH config:"
+          cat ~/.ssh/config
+          echo "Attempting verbose connection for debugging:"
+          ssh -v -o StrictHostKeyChecking=no $PA_USERNAME@ssh.pythonanywhere.com "echo test"
           exit 1
         fi
-        
-        # Copy script to PythonAnywhere using the configured host
-        scp deploy.sh pythonanywhere:~/deploy.sh
-        
-        # Execute script with variables
-        ssh pythonanywhere "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
         
         echo "Deployment completed!"
     
