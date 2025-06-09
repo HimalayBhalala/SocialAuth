@@ -368,11 +368,11 @@ STATICFILES_DIRS = [
 # For PythonAnywhere deployment
 if IS_PYTHONANYWHERE:
     # Update static root for PythonAnywhere
-    STATIC_ROOT = '/home/yourusername/staticfiles'
+    STATIC_ROOT = '/home/HimalayBhalala/staticfiles'
     
     # Configure MEDIA settings for PythonAnywhere
     MEDIA_URL = '/media/'
-    MEDIA_ROOT = '/home/yourusername/media'
+    MEDIA_ROOT = '/home/HimalayBhalala/media'
 else:
     # Local media settings
     MEDIA_URL = '/media/'
