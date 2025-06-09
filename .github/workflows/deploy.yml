@@ -10,9 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     
-    # Add this to ensure secrets are available
-    environment: production
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -27,59 +24,19 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests paramiko
     
-    - name: Check required secrets
-      id: check_secrets
-      run: |
-        if [[ -z "${{ secrets.PYTHONANYWHERE_USERNAME }}" ]]; then
-          echo "::error::Missing PYTHONANYWHERE_USERNAME secret. Please add it in repository settings."
-          exit 1
-        fi
-        
-        if [[ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]]; then
-          echo "::error::Missing SSH_PRIVATE_KEY secret. Please add it in repository settings."
-          exit 1
-        fi
-        
-        if [[ -z "${{ secrets.PYTHONANYWHERE_API_TOKEN }}" ]]; then
-          echo "::error::Missing PYTHONANYWHERE_API_TOKEN secret. Please add it in repository settings."
-          exit 1
-        fi
-    
     - name: Deploy to PythonAnywhere
       env:
         PA_API_TOKEN: ${{ secrets.PYTHONANYWHERE_API_TOKEN }}
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        SSH_HOST: ssh.pythonanywhere.com
       run: |
-        # Set up SSH
+        # Create SSH key file
         mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-        
-        # Debug environment variables (without revealing secrets)
-        echo "Debugging information:"
-        echo "PA_USERNAME is set: $([[ -n "$PA_USERNAME" ]] && echo "Yes" || echo "No")"
-        echo "SSH_PRIVATE_KEY length: ${#SSH_PRIVATE_KEY}"
-        
-        # Exit if variables are not set
-        if [[ -z "$PA_USERNAME" ]]; then
-          echo "ERROR: PA_USERNAME environment variable is not set"
-          exit 1
-        fi
-        
-        if [[ -z "$SSH_PRIVATE_KEY" ]]; then
-          echo "ERROR: SSH_PRIVATE_KEY environment variable is not set"
-          exit 1
-        fi
-        
-        # Save and secure the SSH key
         echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         
-        # Show SSH key info for debugging
-        echo "SSH key file size: $(wc -c < ~/.ssh/id_rsa) bytes"
-        echo "SSH key file permissions: $(ls -la ~/.ssh/id_rsa)"
-        
-        # Add PythonAnywhere host key
+        # Add host key
         ssh-keyscan -t rsa ssh.pythonanywhere.com >> ~/.ssh/known_hosts
         
         # Create deployment script
@@ -132,29 +89,19 @@ jobs:
         echo "Deployment completed successfully!"
         EOL
         
-        # Test SSH connection
-        echo "Testing SSH connection..."
-        ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i ~/.ssh/id_rsa "$PA_USERNAME@ssh.pythonanywhere.com" "echo SSH connection successful"
+        # Copy script to PythonAnywhere
+        scp deploy.sh ${PA_USERNAME}@${SSH_HOST}:~/deploy.sh
         
-        # Copy deployment script
-        echo "Copying deployment script..."
-        scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa deploy.sh "$PA_USERNAME@ssh.pythonanywhere.com:~/deploy.sh"
-        
-        # Run deployment script
-        echo "Running deployment script..."
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa "$PA_USERNAME@ssh.pythonanywhere.com" "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
+        # Execute script with variables
+        ssh ${PA_USERNAME}@${SSH_HOST} "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
         
         echo "Deployment completed!"
     
     - name: Verify deployment
-      if: success()
-      env:
-        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
         echo "Verifying deployment..."
         sleep 10
-        SITE_URL="https://${PA_USERNAME}.pythonanywhere.com"
-        echo "Checking site at: $SITE_URL"
+        SITE_URL="https://${{ secrets.PYTHONANYWHERE_USERNAME }}.pythonanywhere.com"
         HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $SITE_URL)
         echo "Site status: $HTTP_STATUS"
         if [[ "$HTTP_STATUS" == "200" ]]; then
