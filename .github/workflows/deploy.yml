@@ -31,12 +31,25 @@ jobs:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         SSH_HOST: ssh.pythonanywhere.com
       run: |
-        # Create SSH key file
+        # Create SSH directory and set permissions
         mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        
+        # Create SSH key file with proper permissions
         echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         
-        # Add host key
+        # Set up SSH config for easier connection
+        cat > ~/.ssh/config << EOF
+        Host pythonanywhere
+          HostName ssh.pythonanywhere.com
+          User ${PA_USERNAME}
+          IdentityFile ~/.ssh/id_rsa
+          StrictHostKeyChecking no
+        EOF
+        chmod 600 ~/.ssh/config
+        
+        # Add host key without strict checking
         ssh-keyscan -t rsa ssh.pythonanywhere.com >> ~/.ssh/known_hosts
         
         # Create deployment script
@@ -89,11 +102,22 @@ jobs:
         echo "Deployment completed successfully!"
         EOL
         
-        # Copy script to PythonAnywhere
-        scp deploy.sh ${PA_USERNAME}@${SSH_HOST}:~/deploy.sh
+        # Test SSH connection first
+        echo "Testing SSH connection..."
+        if ssh -o BatchMode=yes -o ConnectTimeout=5 pythonanywhere "echo SSH connection successful"; then
+          echo "SSH connection working correctly, proceeding with deployment"
+        else
+          echo "SSH connection failed, checking key permissions and debug info"
+          ls -la ~/.ssh/
+          ssh -v pythonanywhere "echo test"
+          exit 1
+        fi
+        
+        # Copy script to PythonAnywhere using the configured host
+        scp deploy.sh pythonanywhere:~/deploy.sh
         
         # Execute script with variables
-        ssh ${PA_USERNAME}@${SSH_HOST} "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
+        ssh pythonanywhere "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
         
         echo "Deployment completed!"
     
