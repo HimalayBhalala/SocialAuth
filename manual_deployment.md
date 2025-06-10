@@ -10,7 +10,7 @@ Run these commands on your local machine:
 # Create a new SSH key pair (no passphrase for automated deployment)
 ssh-keygen -t rsa -b 4096 -f pythonanywhere_deploy_key -N ""
 
-# Display the public key to copy
+# Display the public key to copy 
 cat pythonanywhere_deploy_key.pub
 ```
 
