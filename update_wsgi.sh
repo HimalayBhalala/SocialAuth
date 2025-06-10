@@ -1,3 +1,11 @@
+#!/bin/bash
+# Script to update the WSGI file on PythonAnywhere
+
+# Set the username (replace with your actual PythonAnywhere username)
+USERNAME="HimalayBhalala"
+
+# Create the WSGI file
+cat > /var/www/${USERNAME}_pythonanywhere_com_wsgi.py << EOF
 """
 WSGI config for PythonAnywhere deployment.
 It exposes the WSGI callable as a module-level variable named 'application'.
@@ -7,7 +15,7 @@ import os
 import sys
 
 # Add your project directory to the sys.path
-path = '/home/HimalayBhalala/SocialAuth'
+path = '/home/${USERNAME}/SocialAuth'
 if path not in sys.path:
     sys.path.insert(0, path)
 
@@ -20,17 +28,18 @@ os.environ['DJANGO_SETTINGS_MODULE'] = 'social_authentication.settings'
 os.environ['PYTHONANYWHERE_SITE'] = 'true'
 
 # Add your PythonAnywhere specific database credentials
-os.environ['DB_NAME'] = 'HimalayBhalala$default'
-os.environ['DB_USER'] = 'HimalayBhalala'
+os.environ['DB_NAME'] = '${USERNAME}\$default'
+os.environ['DB_USER'] = '${USERNAME}'
 os.environ['DB_PASSWORD'] = 'Social0000'  # Replace with your actual password
-os.environ['DB_HOST'] = 'HimalayBhalala.mysql.pythonanywhere-services.com'
+os.environ['DB_HOST'] = '${USERNAME}.mysql.pythonanywhere-services.com'
 
 # Set DEBUG to False for production
 os.environ['DEBUG'] = 'False'
 
-# Optionally set other environment variables needed by your app
-# os.environ['ALLOWED_HOSTS'] = 'himalaybhalala.pythonanywhere.com'
-
 # Import and set up the Django WSGI application
 from django.core.wsgi import get_wsgi_application
-application = get_wsgi_application() 
+application = get_wsgi_application()
+EOF
+
+echo "WSGI file updated successfully!"
+echo "To apply changes, reload your web app from the PythonAnywhere dashboard." 
