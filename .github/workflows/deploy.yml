@@ -32,20 +32,59 @@ jobs:
           exit 1
         fi
     
-    - name: Install SSH key
-      uses: shimataro/ssh-key-action@v2
-      with:
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        name: id_rsa
-        known_hosts: ssh.pythonanywhere.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDHHeCTLRo1+Ahnmv9/GoocECRHJiRMh2wUX0UjePFOr9L3X3Dnbq9YhoD5U1U9/SAHJIlChDFGP7QU2hsL8JTGRrtJPJAmfzFzQqZ34y4REb6wGTfMcxfKP5tBhfhvGFpVLFUOjgRbA2jrA5QIwOmqTHZ82XzUDd0fKiELyCbxCk/i7iG92JlZKRh+/jJGnQY/tqHZxQCY2Xh3LcCwW47Lr5lQs4qwKC5oLrQi7MVu4BgZKTUPTFYROQ9qkLiI5MNUQUO/4m51FkwgqgOr16p2KPd6fJsxL61S0vkRK8A2ml/LIoYQgEIJHVRRWy/33gNiR4QWn0R5fBp0vSp5IDhl
-        if_key_exists: replace
+    - name: Set up SSH manually
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
+      run: |
+        # Set up SSH directory
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        
+        # Remove any existing known_hosts entries for PythonAnywhere
+        ssh-keygen -f ~/.ssh/known_hosts -R ssh.pythonanywhere.com || true
+        
+        # Get the latest host key from PythonAnywhere
+        ssh-keyscan -t rsa ssh.pythonanywhere.com > ~/.ssh/temp_known_hosts 2>/dev/null
+        
+        # Verify it's not empty
+        if [ ! -s ~/.ssh/temp_known_hosts ]; then
+          echo "Error: Failed to get host key from PythonAnywhere"
+          exit 1
+        fi
+        
+        # Add to known_hosts
+        cat ~/.ssh/temp_known_hosts >> ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
+        
+        # Debug information
+        echo "SSH_PRIVATE_KEY length: ${#SSH_PRIVATE_KEY}"
+        
+        # Save private key (with careful handling of newlines)
+        echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+        
+        # Check if the key file is valid
+        if ! grep -q "BEGIN" ~/.ssh/id_rsa; then
+          echo "Error: Private key does not contain BEGIN marker"
+          echo "First 10 characters of key file:"
+          head -c 10 ~/.ssh/id_rsa
+          exit 1
+        fi
+        
+        # Set proper permissions
+        chmod 600 ~/.ssh/id_rsa
+        
+        # Show SSH files for debugging
+        ls -la ~/.ssh/
+        echo "SSH key file size: $(wc -c < ~/.ssh/id_rsa) bytes"
     
     - name: Verify SSH connection
       env:
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
         echo "Verifying SSH connection..."
-        ssh -o StrictHostKeyChecking=no -o BatchMode=yes $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"
+        # Verbose output for debugging
+        ssh -v -o StrictHostKeyChecking=accept-new -o BatchMode=yes $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"
     
     - name: Create deployment script
       env:
@@ -146,10 +185,10 @@ jobs:
         PA_API_TOKEN: ${{ secrets.PYTHONANYWHERE_API_TOKEN }}
       run: |
         echo "Copying deployment script to PythonAnywhere..."
-        scp -o StrictHostKeyChecking=no deploy.sh $PA_USERNAME@ssh.pythonanywhere.com:~/deploy.sh
+        scp -o StrictHostKeyChecking=accept-new deploy.sh $PA_USERNAME@ssh.pythonanywhere.com:~/deploy.sh
         
         echo "Running deployment script on PythonAnywhere..."
-        ssh -o StrictHostKeyChecking=no $PA_USERNAME@ssh.pythonanywhere.com "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' ~/deploy.sh"
+        ssh -o StrictHostKeyChecking=accept-new $PA_USERNAME@ssh.pythonanywhere.com "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' ~/deploy.sh"
     
     - name: Verify deployment
       env:
