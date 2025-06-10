@@ -14,143 +14,153 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Check required secrets
+      id: check_secrets
+      run: |
+        if [[ -z "${{ secrets.PYTHONANYWHERE_USERNAME }}" ]]; then
+          echo "::error::Missing PYTHONANYWHERE_USERNAME secret. Please add it in repository settings."
+          exit 1
+        fi
+        
+        if [[ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]]; then
+          echo "::error::Missing SSH_PRIVATE_KEY secret. Please add it in repository settings."
+          exit 1
+        fi
+        
+        if [[ -z "${{ secrets.PYTHONANYWHERE_API_TOKEN }}" ]]; then
+          echo "::error::Missing PYTHONANYWHERE_API_TOKEN secret. Please add it in repository settings."
+          exit 1
+        fi
+    
+    - name: Install SSH key
+      uses: shimataro/ssh-key-action@v2
       with:
-        python-version: '3.10'
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        name: id_rsa
+        known_hosts: ssh.pythonanywhere.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDHHeCTLRo1+Ahnmv9/GoocECRHJiRMh2wUX0UjePFOr9L3X3Dnbq9YhoD5U1U9/SAHJIlChDFGP7QU2hsL8JTGRrtJPJAmfzFzQqZ34y4REb6wGTfMcxfKP5tBhfhvGFpVLFUOjgRbA2jrA5QIwOmqTHZ82XzUDd0fKiELyCbxCk/i7iG92JlZKRh+/jJGnQY/tqHZxQCY2Xh3LcCwW47Lr5lQs4qwKC5oLrQi7MVu4BgZKTUPTFYROQ9qkLiI5MNUQUO/4m51FkwgqgOr16p2KPd6fJsxL61S0vkRK8A2ml/LIoYQgEIJHVRRWy/33gNiR4QWn0R5fBp0vSp5IDhl
+        if_key_exists: replace
     
-    - name: Install deployment dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install requests paramiko
-    
-    - name: Set up SSH key
-      env:
-        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
-      run: |
-        # Debug variables (without revealing secrets)
-        echo "PA_USERNAME is set: $([[ -n "$PA_USERNAME" ]] && echo "Yes" || echo "No")"
-        echo "SSH_PRIVATE_KEY length: ${#SSH_PRIVATE_KEY}"
-        
-        # Exit if variables are not set
-        if [[ -z "$PA_USERNAME" ]]; then
-          echo "ERROR: PYTHONANYWHERE_USERNAME secret is not set"
-          exit 1
-        fi
-        
-        if [[ -z "$SSH_PRIVATE_KEY" ]]; then
-          echo "ERROR: SSH_PRIVATE_KEY secret is not set"
-          exit 1
-        fi
-        
-        # Set up SSH directory
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-        
-        # Save private key to file
-        echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        
-        # Add host key to known_hosts
-        ssh-keyscan -t rsa ssh.pythonanywhere.com >> ~/.ssh/known_hosts
-        chmod 644 ~/.ssh/known_hosts
-        
-        # Show SSH files (for debugging)
-        ls -la ~/.ssh/
-        echo "SSH key file size: $(wc -c < ~/.ssh/id_rsa) bytes"
-    
-    - name: Test SSH connection
+    - name: Verify SSH connection
       env:
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
-        echo "Testing SSH connection..."
-        ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_rsa $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"
+        echo "Verifying SSH connection..."
+        ssh -o StrictHostKeyChecking=no -o BatchMode=yes $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"
     
     - name: Create deployment script
+      env:
+        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
-        cat > deploy.sh << 'EOL'
+        cat > deploy.sh << EOF
         #!/bin/bash
         set -e  # Exit on error
         
         echo "Starting deployment on PythonAnywhere..."
         
-        cd ~/SocialAuth || { echo "Error: SocialAuth directory not found"; exit 1; }
-        echo "Pulling latest code from GitHub..."
-        git pull origin main
+        # Navigate to project directory or clone if doesn't exist
+        if [ ! -d "\$HOME/SocialAuth" ]; then
+          echo "Creating project directory..."
+          mkdir -p \$HOME/SocialAuth
+        fi
         
-        # Create directories if they don't exist
+        cd \$HOME/SocialAuth
+        
+        # Check if git repo is initialized
+        if [ ! -d ".git" ]; then
+          echo "Initializing git repository..."
+          git init
+          git remote add origin https://github.com/${{ github.repository }}.git
+        fi
+        
+        echo "Pulling latest code from GitHub..."
+        git fetch --all
+        git reset --hard origin/main
+        
+        # Set up directories
         echo "Setting up directories..."
-        mkdir -p ~/staticfiles
-        mkdir -p ~/media
-        chmod -R 755 ~/staticfiles
-        chmod -R 755 ~/media
+        mkdir -p \$HOME/staticfiles \$HOME/media \$HOME/var/www
+        chmod -R 755 \$HOME/staticfiles \$HOME/media
         
         # Create WSGI file
         echo "Creating WSGI file..."
-        mkdir -p ~/var/www
-        cat > ~/var/www/${USER}_pythonanywhere_com_wsgi.py << 'EOF'
+        cat > \$HOME/var/www/${PA_USERNAME}_pythonanywhere_com_wsgi.py << 'EOFWSGI'
         """
         WSGI config for PythonAnywhere deployment.
         """
-        
         import os
         import sys
-        
-        # Add your project directory to the sys.path
+
+        # Add project directory to path
         path = os.path.expanduser('~/SocialAuth')
         if path not in sys.path:
             sys.path.insert(0, path)
         
-        # IMPORTANT: Set environment variables BEFORE importing Django
+        # Set environment variables BEFORE importing Django
         os.environ['SECRET_KEY'] = 'y7aovwgl0v0p8v@85klqnuoj6ndm@l02h4g2q^)&)c+lt#9w7p'
         os.environ['DJANGO_SETTINGS_MODULE'] = 'social_authentication.settings'
         os.environ['PYTHONANYWHERE_SITE'] = 'true'
-        os.environ['DB_NAME'] = '${USER}$default'
-        os.environ['DB_USER'] = '${USER}'
+        os.environ['DB_NAME'] = '${PA_USERNAME}\$default'
+        os.environ['DB_USER'] = '${PA_USERNAME}'
         os.environ['DB_PASSWORD'] = 'Social0000'
-        os.environ['DB_HOST'] = '${USER}.mysql.pythonanywhere-services.com'
+        os.environ['DB_HOST'] = '${PA_USERNAME}.mysql.pythonanywhere-services.com'
         os.environ['DEBUG'] = 'False'
         
-        # Import and set up the Django WSGI application
+        # Import Django WSGI application
         from django.core.wsgi import get_wsgi_application
         application = get_wsgi_application()
-        EOF
+        EOFWSGI
         
-        # Activate virtual environment and install dependencies
+        # Set up virtual environment if needed
+        if [ ! -d \$HOME/venv ]; then
+          echo "Creating virtual environment..."
+          python3 -m venv \$HOME/venv
+        fi
+        
+        # Install dependencies
         echo "Installing dependencies..."
-        source ~/venv/bin/activate || { echo "Error: Virtual environment not found"; exit 1; }
+        source \$HOME/venv/bin/activate
         pip install --upgrade pip
         pip install -r requirements.txt
         
-        # Run migrations
-        echo "Running database migrations..."
-        python manage.py migrate
+        # Run migrations and collect static files
+        echo "Running migrations..."
+        python manage.py migrate --noinput
         
-        # Collect static files
         echo "Collecting static files..."
         python manage.py collectstatic --noinput
         
         # Reload web app via API
         echo "Reloading web application..."
-        curl -X POST \
+        curl -s -X POST \
           -H "Authorization: Token ${API_TOKEN}" \
-          https://www.pythonanywhere.com/api/v0/user/${USER}/webapps/${USER}.pythonanywhere.com/reload/
+          https://www.pythonanywhere.com/api/v0/user/${PA_USERNAME}/webapps/${PA_USERNAME}.pythonanywhere.com/reload/
         
         echo "Deployment completed successfully!"
-        EOL
+        EOF
+        
+        chmod +x deploy.sh
     
     - name: Deploy to PythonAnywhere
       env:
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
         PA_API_TOKEN: ${{ secrets.PYTHONANYWHERE_API_TOKEN }}
       run: |
-        # Copy deployment script
-        echo "Copying deployment script..."
-        scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa deploy.sh $PA_USERNAME@ssh.pythonanywhere.com:~/deploy.sh
+        echo "Copying deployment script to PythonAnywhere..."
+        scp -o StrictHostKeyChecking=no deploy.sh $PA_USERNAME@ssh.pythonanywhere.com:~/deploy.sh
         
-        # Execute deployment script
-        echo "Running deployment script..."
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $PA_USERNAME@ssh.pythonanywhere.com "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' ~/deploy.sh"
-        
-        echo "Deployment completed!" 
+        echo "Running deployment script on PythonAnywhere..."
+        ssh -o StrictHostKeyChecking=no $PA_USERNAME@ssh.pythonanywhere.com "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' ~/deploy.sh"
+    
+    - name: Verify deployment
+      env:
+        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
+      run: |
+        echo "Verifying deployment..."
+        sleep 10
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$PA_USERNAME.pythonanywhere.com)
+        echo "Site status: $HTTP_STATUS"
+        if [[ "$HTTP_STATUS" == "200" ]]; then
+          echo "Deployment verified successfully!"
+        else
+          echo "Site may still be starting up. Check manually at https://$PA_USERNAME.pythonanywhere.com"
+        fi 
