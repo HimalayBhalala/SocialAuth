@@ -24,22 +24,51 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests paramiko
     
-    - name: Deploy to PythonAnywhere
+    - name: Set up SSH key
       env:
-        PA_API_TOKEN: ${{ secrets.PYTHONANYWHERE_API_TOKEN }}
-        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        SSH_HOST: ssh.pythonanywhere.com
+        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
-        # Create SSH key file
+        # Debug variables (without revealing secrets)
+        echo "PA_USERNAME is set: $([[ -n "$PA_USERNAME" ]] && echo "Yes" || echo "No")"
+        echo "SSH_PRIVATE_KEY length: ${#SSH_PRIVATE_KEY}"
+        
+        # Exit if variables are not set
+        if [[ -z "$PA_USERNAME" ]]; then
+          echo "ERROR: PYTHONANYWHERE_USERNAME secret is not set"
+          exit 1
+        fi
+        
+        if [[ -z "$SSH_PRIVATE_KEY" ]]; then
+          echo "ERROR: SSH_PRIVATE_KEY secret is not set"
+          exit 1
+        fi
+        
+        # Set up SSH directory
         mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        
+        # Save private key to file
         echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         
-        # Add host key
+        # Add host key to known_hosts
         ssh-keyscan -t rsa ssh.pythonanywhere.com >> ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
         
-        # Create deployment script
+        # Show SSH files (for debugging)
+        ls -la ~/.ssh/
+        echo "SSH key file size: $(wc -c < ~/.ssh/id_rsa) bytes"
+    
+    - name: Test SSH connection
+      env:
+        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
+      run: |
+        echo "Testing SSH connection..."
+        ssh -o BatchMode=yes -o ConnectTimeout=10 -i ~/.ssh/id_rsa $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"
+    
+    - name: Create deployment script
+      run: |
         cat > deploy.sh << 'EOL'
         #!/bin/bash
         set -e  # Exit on error
@@ -57,15 +86,36 @@ jobs:
         chmod -R 755 ~/staticfiles
         chmod -R 755 ~/media
         
-        # Fix WSGI file with correct username
-        echo "Fixing WSGI file with correct username..."
-        export PA_USERNAME=${USERNAME}
-        python fix_pythonanywhere.py
-        
-        # Create WSGI file in PythonAnywhere web app configuration
-        echo "Creating/updating WSGI file for PythonAnywhere web app..."
+        # Create WSGI file
+        echo "Creating WSGI file..."
         mkdir -p ~/var/www
-        cp pythonanywhere_wsgi.py ~/var/www/${USERNAME}_pythonanywhere_com_wsgi.py
+        cat > ~/var/www/${USER}_pythonanywhere_com_wsgi.py << 'EOF'
+        """
+        WSGI config for PythonAnywhere deployment.
+        """
+        
+        import os
+        import sys
+        
+        # Add your project directory to the sys.path
+        path = os.path.expanduser('~/SocialAuth')
+        if path not in sys.path:
+            sys.path.insert(0, path)
+        
+        # IMPORTANT: Set environment variables BEFORE importing Django
+        os.environ['SECRET_KEY'] = 'y7aovwgl0v0p8v@85klqnuoj6ndm@l02h4g2q^)&)c+lt#9w7p'
+        os.environ['DJANGO_SETTINGS_MODULE'] = 'social_authentication.settings'
+        os.environ['PYTHONANYWHERE_SITE'] = 'true'
+        os.environ['DB_NAME'] = '${USER}$default'
+        os.environ['DB_USER'] = '${USER}'
+        os.environ['DB_PASSWORD'] = 'Social0000'
+        os.environ['DB_HOST'] = '${USER}.mysql.pythonanywhere-services.com'
+        os.environ['DEBUG'] = 'False'
+        
+        # Import and set up the Django WSGI application
+        from django.core.wsgi import get_wsgi_application
+        application = get_wsgi_application()
+        EOF
         
         # Activate virtual environment and install dependencies
         echo "Installing dependencies..."
@@ -83,39 +133,24 @@ jobs:
         
         # Reload web app via API
         echo "Reloading web application..."
-        RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+        curl -X POST \
           -H "Authorization: Token ${API_TOKEN}" \
-          https://www.pythonanywhere.com/api/v0/user/${USERNAME}/webapps/${USERNAME}.pythonanywhere.com/reload/)
-        
-        HTTP_CODE=${RESPONSE: -3}
-        if [[ $HTTP_CODE == "200" ]]; then
-          echo "Web app reloaded successfully!"
-        else
-          echo "Error reloading web app. HTTP code: $HTTP_CODE"
-          echo "Response: ${RESPONSE%???}"
-          exit 1
-        fi
+          https://www.pythonanywhere.com/api/v0/user/${USER}/webapps/${USER}.pythonanywhere.com/reload/
         
         echo "Deployment completed successfully!"
         EOL
-        
-        # Copy script to PythonAnywhere
-        scp deploy.sh ${PA_USERNAME}@${SSH_HOST}:~/deploy.sh
-        
-        # Execute script with variables
-        ssh ${PA_USERNAME}@${SSH_HOST} "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' USERNAME='${PA_USERNAME}' ~/deploy.sh"
-        
-        echo "Deployment completed!"
     
-    - name: Verify deployment
+    - name: Deploy to PythonAnywhere
+      env:
+        PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
+        PA_API_TOKEN: ${{ secrets.PYTHONANYWHERE_API_TOKEN }}
       run: |
-        echo "Verifying deployment..."
-        sleep 10
-        SITE_URL="https://${{ secrets.PYTHONANYWHERE_USERNAME }}.pythonanywhere.com"
-        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" $SITE_URL)
-        echo "Site status: $HTTP_STATUS"
-        if [[ "$HTTP_STATUS" == "200" ]]; then
-          echo "Deployment verified successfully!"
-        else
-          echo "Site may still be starting up. Check manually at $SITE_URL"
-        fi
+        # Copy deployment script
+        echo "Copying deployment script..."
+        scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa deploy.sh $PA_USERNAME@ssh.pythonanywhere.com:~/deploy.sh
+        
+        # Execute deployment script
+        echo "Running deployment script..."
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $PA_USERNAME@ssh.pythonanywhere.com "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' ~/deploy.sh"
+        
+        echo "Deployment completed!" 
