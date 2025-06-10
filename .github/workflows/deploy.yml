@@ -47,30 +47,49 @@ jobs:
         # Generate a new SSH key (in PEM format)
         ssh-keygen -t rsa -b 4096 -m PEM -f ~/.ssh/id_rsa -N ""
         
-        # Display the public key
-        echo "Generated new SSH key:"
+        # Display the public key with clear formatting
+        echo "=================================================================="
+        echo "GENERATED PUBLIC SSH KEY - COPY THIS ENTIRE KEY:"
+        echo "=================================================================="
         cat ~/.ssh/id_rsa.pub
+        echo "=================================================================="
         
         # Store the public key for later use
-        echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
+        PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)
+        echo "SSH_PUBLIC_KEY=$PUBLIC_KEY" >> $GITHUB_ENV
+        echo "SSH_PUBLIC_KEY_SHORT=$(echo $PUBLIC_KEY | cut -d ' ' -f 2 | cut -c 1-20)..." >> $GITHUB_ENV
         
-        echo "*** IMPORTANT ***"
-        echo "You need to add this public key to your PythonAnywhere account:"
-        echo "1. Go to PythonAnywhere → Account → SSH keys"
-        echo "2. Add the public key shown above"
-        echo "3. Run this workflow again after adding the key"
+        echo "*** IMPORTANT: MANUAL ACTION REQUIRED ***"
+        echo "You must add this public key to your PythonAnywhere account:"
+        echo ""
+        echo "1. Log in to PythonAnywhere at https://www.pythonanywhere.com/"
+        echo "2. Go to Account → SSH keys (in the top right menu)"
+        echo "3. Add the complete public key shown above (starting with 'ssh-rsa' and ending with your email)"
+        echo "4. Click 'Add' to save the key"
+        echo "5. Run this workflow again after adding the key"
+        echo ""
+        echo "TROUBLESHOOTING: If you still have issues after adding the key:"
+        echo "- Make sure you copied the entire key (including ssh-rsa at the beginning)"
+        echo "- Check that you added it to the correct PythonAnywhere account"
+        echo "- Verify the username in your GitHub secret matches your PythonAnywhere username"
         
         # Show SSH files for debugging
         ls -la ~/.ssh/
+        echo "SSH key fingerprint: $(ssh-keygen -lf ~/.ssh/id_rsa.pub)"
     
     - name: Wait for manual step
       run: |
-        echo "This workflow needs manual intervention:"
-        echo "You need to add the generated SSH public key to your PythonAnywhere account."
-        echo "Please check the previous step's output to copy the key."
+        echo "=================================================================="
+        echo "MANUAL ACTION REQUIRED"
+        echo "=================================================================="
+        echo "This workflow has generated a new SSH key and displayed it in the previous step."
+        echo "You MUST add this key to your PythonAnywhere account before continuing."
         echo ""
-        echo "If you have already added the key, you can continue."
-        sleep 5
+        echo "The key fingerprint is: ${{ env.SSH_PUBLIC_KEY_SHORT }}"
+        echo ""
+        echo "If you have already added the key to PythonAnywhere, the next step will attempt"
+        echo "to connect using this key. If it fails, double-check that you added the key correctly."
+        echo "=================================================================="
     
     - name: Test SSH connection with generated key
       env:
