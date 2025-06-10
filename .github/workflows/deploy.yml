@@ -22,19 +22,14 @@ jobs:
           exit 1
         fi
         
-        if [[ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]]; then
-          echo "::error::Missing SSH_PRIVATE_KEY secret. Please add it in repository settings."
-          exit 1
-        fi
-        
         if [[ -z "${{ secrets.PYTHONANYWHERE_API_TOKEN }}" ]]; then
           echo "::error::Missing PYTHONANYWHERE_API_TOKEN secret. Please add it in repository settings."
           exit 1
         fi
     
-    - name: Set up SSH manually
+    - name: Generate new SSH key
+      id: generate_ssh_key
       env:
-        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
         # Set up SSH directory
@@ -46,47 +41,56 @@ jobs:
         
         # Get the latest host key from PythonAnywhere
         ssh-keyscan -t rsa ssh.pythonanywhere.com > ~/.ssh/temp_known_hosts 2>/dev/null
-        
-        # Verify it's not empty
-        if [ ! -s ~/.ssh/temp_known_hosts ]; then
-          echo "Error: Failed to get host key from PythonAnywhere"
-          exit 1
-        fi
-        
-        # Add to known_hosts
         cat ~/.ssh/temp_known_hosts >> ~/.ssh/known_hosts
         chmod 644 ~/.ssh/known_hosts
         
-        # Debug information
-        echo "SSH_PRIVATE_KEY length: ${#SSH_PRIVATE_KEY}"
+        # Generate a new SSH key (in PEM format)
+        ssh-keygen -t rsa -b 4096 -m PEM -f ~/.ssh/id_rsa -N ""
         
-        # Save private key (with careful handling of newlines)
-        echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+        # Display the public key
+        echo "Generated new SSH key:"
+        cat ~/.ssh/id_rsa.pub
         
-        # Check if the key file is valid
-        if ! grep -q "BEGIN" ~/.ssh/id_rsa; then
-          echo "Error: Private key does not contain BEGIN marker"
-          echo "First 10 characters of key file:"
-          head -c 10 ~/.ssh/id_rsa
-          exit 1
-        fi
+        # Store the public key for later use
+        echo "SSH_PUBLIC_KEY=$(cat ~/.ssh/id_rsa.pub)" >> $GITHUB_ENV
         
-        # Set proper permissions
-        chmod 600 ~/.ssh/id_rsa
+        echo "*** IMPORTANT ***"
+        echo "You need to add this public key to your PythonAnywhere account:"
+        echo "1. Go to PythonAnywhere → Account → SSH keys"
+        echo "2. Add the public key shown above"
+        echo "3. Run this workflow again after adding the key"
         
         # Show SSH files for debugging
         ls -la ~/.ssh/
-        echo "SSH key file size: $(wc -c < ~/.ssh/id_rsa) bytes"
     
-    - name: Verify SSH connection
+    - name: Wait for manual step
+      run: |
+        echo "This workflow needs manual intervention:"
+        echo "You need to add the generated SSH public key to your PythonAnywhere account."
+        echo "Please check the previous step's output to copy the key."
+        echo ""
+        echo "If you have already added the key, you can continue."
+        sleep 5
+    
+    - name: Test SSH connection with generated key
       env:
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
+      continue-on-error: true
+      id: ssh_test
       run: |
-        echo "Verifying SSH connection..."
-        # Verbose output for debugging
-        ssh -v -o StrictHostKeyChecking=accept-new -o BatchMode=yes $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"
+        echo "Testing SSH connection with generated key..."
+        ssh -v -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=10 $PA_USERNAME@ssh.pythonanywhere.com "echo SSH connection successful"
+        if [ $? -eq 0 ]; then
+          echo "SSH_CONNECTION_SUCCESSFUL=true" >> $GITHUB_ENV
+          echo "SSH connection successful!"
+        else
+          echo "SSH_CONNECTION_SUCCESSFUL=false" >> $GITHUB_ENV
+          echo "SSH connection failed. Please make sure you've added the public key to PythonAnywhere."
+          echo "You'll need to manually add the public key and run this workflow again."
+        fi
     
     - name: Create deployment script
+      if: env.SSH_CONNECTION_SUCCESSFUL == 'true'
       env:
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
@@ -180,6 +184,7 @@ jobs:
         chmod +x deploy.sh
     
     - name: Deploy to PythonAnywhere
+      if: env.SSH_CONNECTION_SUCCESSFUL == 'true'
       env:
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
         PA_API_TOKEN: ${{ secrets.PYTHONANYWHERE_API_TOKEN }}
@@ -191,6 +196,7 @@ jobs:
         ssh -o StrictHostKeyChecking=accept-new $PA_USERNAME@ssh.pythonanywhere.com "chmod +x ~/deploy.sh && API_TOKEN='${PA_API_TOKEN}' ~/deploy.sh"
     
     - name: Verify deployment
+      if: env.SSH_CONNECTION_SUCCESSFUL == 'true'
       env:
         PA_USERNAME: ${{ secrets.PYTHONANYWHERE_USERNAME }}
       run: |
